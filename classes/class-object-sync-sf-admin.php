@@ -261,6 +261,7 @@ class Object_Sync_Sf_Admin {
 
 		// CSS and Javascript.
 		add_action( 'admin_enqueue_scripts', array( $this, 'admin_scripts_and_styles' ) );
+		add_action( 'admin_enqueue_scripts', array( $this, 'bulk_sync_scripts_and_styles' ) );
 
 		// Settings API forms and notices.
 		add_action( 'admin_menu', array( $this, 'create_admin_menu' ) );
@@ -311,6 +312,9 @@ class Object_Sync_Sf_Admin {
 		add_action( 'admin_post_object_sync_for_salesforce_import', array( $this, 'import_json_file' ) );
 		add_action( 'admin_post_object_sync_for_salesforce_export', array( $this, 'export_json_file' ) );
 
+		// environment switching (Carkeek fork).
+		add_action( 'admin_post_osf_save_environments', array( $this, 'save_environments' ) );
+
 	}
 
 	/**
@@ -357,6 +361,57 @@ class Object_Sync_Sf_Admin {
 
 		wp_enqueue_script( $this->slug . '-admin', plugins_url( 'assets/js/object-sync-for-salesforce-admin.min.js', $this->file ), $javascript_dependencies, filemtime( plugin_dir_path( $this->file ) . 'assets/js/object-sync-for-salesforce-admin.min.js' ), true );
 		wp_enqueue_style( $this->slug . '-admin', plugins_url( 'assets/css/object-sync-for-salesforce-admin.css', $this->file ), $css_dependencies, filemtime( plugin_dir_path( $this->file ) . 'assets/css/object-sync-for-salesforce-admin.css' ), 'all' );
+	}
+
+	/**
+	 * Enqueue Bulk Sync tab CSS and JS — only on the OSF settings page when the bulk_sync tab is active.
+	 *
+	 * @param string $hook Current admin page hook.
+	 */
+	public function bulk_sync_scripts_and_styles( $hook ) {
+		if ( 'settings_page_object-sync-salesforce-admin' !== $hook ) {
+			return;
+		}
+
+		$get_data = filter_input_array( INPUT_GET, FILTER_SANITIZE_SPECIAL_CHARS );
+		$tab      = isset( $get_data['tab'] ) ? sanitize_key( $get_data['tab'] ) : 'settings';
+		if ( 'bulk_sync' !== $tab ) {
+			return;
+		}
+
+		wp_enqueue_style(
+			$this->slug . '-bulk-sync',
+			plugins_url( 'assets/css/bulk-sync.css', $this->file ),
+			array(),
+			filemtime( plugin_dir_path( $this->file ) . 'assets/css/bulk-sync.css' )
+		);
+
+		wp_enqueue_script(
+			$this->slug . '-bulk-sync',
+			plugins_url( 'assets/js/bulk-sync.js', $this->file ),
+			array( 'jquery' ),
+			filemtime( plugin_dir_path( $this->file ) . 'assets/js/bulk-sync.js' ),
+			true
+		);
+
+		wp_localize_script(
+			$this->slug . '-bulk-sync',
+			'osfBulkSyncData',
+			array(
+				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+				'nonce'   => wp_create_nonce( 'osf_bulk_sync_nonce' ),
+				'strings' => array(
+					'pulling'      => __( 'Pulling…', 'object-sync-for-salesforce' ),
+					'pushing'      => __( 'Pushing…', 'object-sync-for-salesforce' ),
+					'success'      => __( 'Success', 'object-sync-for-salesforce' ),
+					'error'        => __( 'Error', 'object-sync-for-salesforce' ),
+					'noIds'        => __( 'Please enter at least one ID.', 'object-sync-for-salesforce' ),
+					'loading'      => __( 'Loading…', 'object-sync-for-salesforce' ),
+					'selectRows'   => __( 'Please select at least one row.', 'object-sync-for-salesforce' ),
+					'noObjectType' => __( 'Unknown', 'object-sync-for-salesforce' ),
+				),
+			)
+		);
 	}
 
 	/**
@@ -541,6 +596,8 @@ class Object_Sync_Sf_Admin {
 			'fieldmaps'     => __( 'Fieldmaps', 'object-sync-for-salesforce' ),
 			'schedule'      => __( 'Scheduling', 'object-sync-for-salesforce' ),
 			'import-export' => __( 'Import &amp; Export', 'object-sync-for-salesforce' ),
+			'bulk_sync'     => __( 'Bulk Sync', 'object-sync-for-salesforce' ),
+			'environments'  => __( 'Environments', 'object-sync-for-salesforce' ),
 		); // this creates the tabs for the admin.
 
 		// optionally make tab(s) for logging and log settings.
@@ -643,7 +700,10 @@ class Object_Sync_Sf_Admin {
 								$push_async                          = $map['push_async'];
 								$push_drafts                         = $map['push_drafts'];
 								$pull_to_drafts                      = $map['pull_to_drafts'];
+								$pull_default_status                 = isset( $map['pull_default_status'] ) ? $map['pull_default_status'] : 'publish';
 								$weight                              = $map['weight'];
+								$relational_rules                    = isset( $map['relational_rules'] ) ? $map['relational_rules'] : array( 'enabled' => 0, 'rules' => array() );
+								$pull_conditions                     = isset( $map['pull_conditions'] ) ? $map['pull_conditions'] : array( 'enabled' => 0, 'conditions' => array() );
 							}
 							if ( 'add' === $method || 'edit' === $method || 'clone' === $method ) {
 								require_once plugin_dir_path( $this->file ) . '/templates/admin/fieldmaps-add-edit-clone.php';
@@ -722,6 +782,12 @@ class Object_Sync_Sf_Admin {
 						$success_url = get_admin_url( null, 'options-general.php?page=' . $this->admin_settings_url_param . '&tab=mapping_errors' );
 						require_once plugin_dir_path( $this->file ) . '/templates/admin/mapping-errors.php';
 					}
+					break;
+				case 'bulk_sync':
+					require_once plugin_dir_path( $this->file ) . '/templates/admin/bulk-sync.php';
+					break;
+				case 'environments':
+					require_once plugin_dir_path( $this->file ) . '/templates/admin/environments.php';
 					break;
 				case 'import-export':
 					require_once plugin_dir_path( $this->file ) . '/templates/admin/import-export.php';
@@ -2758,6 +2824,55 @@ class Object_Sync_Sf_Admin {
 	 * @param string $action Did we push or pull.
 	 * @return int   $wpdb->insert_id This is the database row for the map object
 	 */
+	/**
+	 * Handle admin_post action for the Environments settings page (Carkeek fork).
+	 *
+	 * Saves per-environment credentials and, when the active environment changes,
+	 * clears the Salesforce runtime tokens so a fresh OAuth flow is required.
+	 */
+	public function save_environments() {
+		check_admin_referer( 'osf_save_environments' );
+
+		if ( ! current_user_can( 'configure_salesforce' ) ) {
+			wp_die( esc_html__( 'You do not have permission to perform this action.', 'object-sync-for-salesforce' ) );
+		}
+
+		$environments = object_sync_for_salesforce()->environments;
+
+		// Save credentials for both environments.
+		foreach ( array( 'sandbox', 'production' ) as $env ) {
+			$input_key = 'env_' . $env;
+			// phpcs:ignore WordPress.Security.NonceVerification
+			if ( isset( $_POST[ $input_key ] ) && is_array( $_POST[ $input_key ] ) ) {
+				// phpcs:ignore WordPress.Security.NonceVerification
+				$environments->save_environment_credentials( $env, wp_unslash( $_POST[ $input_key ] ) );
+			}
+		}
+
+		// Handle active environment toggle.
+		$current_active = $environments->get_active_environment();
+		// phpcs:ignore WordPress.Security.NonceVerification
+		$new_active = isset( $_POST['active_environment'] ) ? sanitize_key( $_POST['active_environment'] ) : '';
+
+		$env_switched = false;
+		if ( $new_active !== $current_active ) {
+			$environments->set_active_environment( $new_active );
+			$env_switched = true;
+		}
+
+		$redirect_args = array(
+			'page'    => $this->admin_settings_url_param,
+			'tab'     => 'environments',
+			'updated' => '1',
+		);
+		if ( $env_switched ) {
+			$redirect_args['switched'] = rawurlencode( $new_active );
+		}
+		$redirect_url = get_admin_url( null, 'options-general.php?' . http_build_query( $redirect_args ) );
+		wp_safe_redirect( esc_url_raw( $redirect_url ) );
+		exit;
+	}
+
 	private function create_object_map( $wordpress_id, $wordpress_object, $salesforce_id, $action = '' ) {
 		// Create object map and save it.
 		$mapping_object = $this->mappings->create_object_map(

@@ -744,7 +744,7 @@ class Object_Sync_Sf_WordPress {
 	 *
 	 * part of CRUD for WordPress objects
 	 */
-	public function object_upsert( $name, $key, $value, $methods, $params, $pull_to_drafts = false, $check_only = false ) {
+	public function object_upsert( $name, $key, $value, $methods, $params, $pull_to_drafts = false, $pull_default_status = 'publish', $check_only = false ) {
 
 		$structure = $this->get_wordpress_table_structure( $name );
 		$id_field  = $structure['id_field'];
@@ -763,7 +763,7 @@ class Object_Sync_Sf_WordPress {
 				$result = $this->user_upsert( $key, $value, $methods, $params, $id_field, $pull_to_drafts, $check_only );
 				break;
 			case 'post':
-				$result = $this->post_upsert( $key, $value, $methods, $params, $id_field, $pull_to_drafts, $name, $check_only );
+				$result = $this->post_upsert( $key, $value, $methods, $params, $id_field, $pull_to_drafts, $name, $pull_default_status, $check_only );
 				break;
 			case 'attachment':
 				$result = $this->attachment_upsert( $key, $value, $methods, $params, $id_field, $check_only );
@@ -790,7 +790,7 @@ class Object_Sync_Sf_WordPress {
 				*/
 				// Check to see if someone is calling the filter, and apply it if so.
 				if ( ! has_filter( $this->option_prefix . 'upsert_custom_wordpress_item' ) ) {
-					$result = $this->post_upsert( $key, $value, $methods, $params, $id_field, $pull_to_drafts, $name, $check_only );
+					$result = $this->post_upsert( $key, $value, $methods, $params, $id_field, $pull_to_drafts, $name, $pull_default_status, $check_only );
 				} else {
 					$result = apply_filters(
 						$this->option_prefix . 'upsert_custom_wordpress_item',
@@ -1270,7 +1270,7 @@ class Object_Sync_Sf_WordPress {
 	 *     success: 1
 	 *   "errors" : [ ],
 	 */
-	private function post_create( $params, $id_field = 'ID', $post_type = 'post' ) {
+	private function post_create( $params, $id_field = 'ID', $post_type = 'post', $pull_default_status = 'publish' ) {
 		// Load all params with a method_modify of the object structure's content_method into $content.
 		$content   = array();
 		$structure = $this->get_wordpress_table_structure( $post_type );
@@ -1283,6 +1283,10 @@ class Object_Sync_Sf_WordPress {
 
 		if ( '' !== $post_type ) {
 			$content['post_type'] = $post_type;
+		}
+
+		if ( ! isset( $content['post_status'] ) ) {
+			$content['post_status'] = in_array( $pull_default_status, array( 'publish', 'draft' ), true ) ? $pull_default_status : 'publish';
 		}
 
 		// WordPress post creation will fail with an object of 0 if there is no title or content
@@ -1364,7 +1368,7 @@ class Object_Sync_Sf_WordPress {
 	 *     success: 1
 	 *   "errors" : [ ],
 	 */
-	private function post_upsert( $key, $value, $methods, $params, $id_field = 'ID', $pull_to_drafts = false, $post_type = 'post', $check_only = false ) {
+	private function post_upsert( $key, $value, $methods, $params, $id_field = 'ID', $pull_to_drafts = false, $post_type = 'post', $pull_default_status = 'publish', $check_only = false ) {
 
 		$method = isset( $methods['method_match'] ) ? $methods['method_match'] : '';
 		if ( '' !== $method ) {
@@ -1439,7 +1443,7 @@ class Object_Sync_Sf_WordPress {
 					'method_modify' => $method,
 					'method_read'   => $methods['method_read'],
 				);
-				$result         = $this->post_create( $params, $id_field, $post_type );
+				$result         = $this->post_create( $params, $id_field, $post_type, $pull_default_status );
 				return $result;
 			} else {
 				// Check only is true but there's not a post yet.

@@ -709,8 +709,58 @@ class Object_Sync_Sf_Mapping {
 		$data['push_async']                          = isset( $posted['push_async'] ) ? $posted['push_async'] : '';
 		$data['push_drafts']                         = isset( $posted['push_drafts'] ) ? $posted['push_drafts'] : '';
 		$data['pull_to_drafts']                      = isset( $posted['pull_to_drafts'] ) ? $posted['pull_to_drafts'] : '';
+		$data['pull_default_status']                 = isset( $posted['pull_default_status'] ) && in_array( $posted['pull_default_status'], array( 'publish', 'draft' ), true ) ? $posted['pull_default_status'] : 'publish';
 		$data['weight']                              = isset( $posted['weight'] ) ? $posted['weight'] : '';
 		$data['always_delete_object_maps_on_delete'] = isset( $posted['always_delete_object_maps_on_delete'] ) ? $posted['always_delete_object_maps_on_delete'] : '0';
+
+		// Carkeek: relational rules.
+		$relational_rules         = array();
+		$relational_rules_enabled = isset( $posted['relational_rules_enabled'] ) ? 1 : 0;
+		if ( $relational_rules_enabled && isset( $posted['relational_rule_sf_field'] ) && is_array( $posted['relational_rule_sf_field'] ) ) {
+			foreach ( $posted['relational_rule_sf_field'] as $idx => $sf_field ) {
+				$sf_field      = sanitize_text_field( wp_unslash( $sf_field ) );
+				$target_object = isset( $posted['relational_rule_target_object'][ $idx ] ) ? sanitize_text_field( wp_unslash( $posted['relational_rule_target_object'][ $idx ] ) ) : '';
+				$acf_field     = isset( $posted['relational_rule_acf_field'][ $idx ] ) ? sanitize_text_field( wp_unslash( $posted['relational_rule_acf_field'][ $idx ] ) ) : '';
+				if ( $sf_field && $target_object && $acf_field ) {
+					$relational_rules[] = array(
+						'sf_field'      => $sf_field,
+						'target_object' => $target_object,
+						'acf_field'     => $acf_field,
+					);
+				}
+			}
+		}
+		$data['relational_rules'] = wp_json_encode(
+			array(
+				'enabled' => $relational_rules_enabled,
+				'rules'   => $relational_rules,
+			)
+		);
+
+		// Carkeek: pull conditions.
+		$pull_conditions         = array();
+		$pull_conditions_enabled = isset( $posted['pull_conditions_enabled'] ) ? 1 : 0;
+		if ( $pull_conditions_enabled && isset( $posted['pull_condition_sf_field'] ) && is_array( $posted['pull_condition_sf_field'] ) ) {
+			foreach ( $posted['pull_condition_sf_field'] as $idx => $sf_field ) {
+				$sf_field = sanitize_text_field( wp_unslash( $sf_field ) );
+				$operator = isset( $posted['pull_condition_operator'][ $idx ] ) ? sanitize_key( $posted['pull_condition_operator'][ $idx ] ) : '';
+				$value    = isset( $posted['pull_condition_value'][ $idx ] ) ? sanitize_text_field( wp_unslash( $posted['pull_condition_value'][ $idx ] ) ) : '';
+				if ( $sf_field && $operator ) {
+					$pull_conditions[] = array(
+						'sf_field' => $sf_field,
+						'operator' => $operator,
+						'value'    => $value,
+					);
+				}
+			}
+		}
+		$data['pull_conditions'] = wp_json_encode(
+			array(
+				'enabled'    => $pull_conditions_enabled,
+				'conditions' => $pull_conditions,
+			)
+		);
+
 		return $data;
 	}
 
@@ -1269,6 +1319,9 @@ class Object_Sync_Sf_Mapping {
 	 * @return array $mappings Associative array of field maps ready to use
 	 */
 	private function prepare_fieldmap_data( $mappings, $record_type = '' ) {
+		$empty_relational = array( 'enabled' => 0, 'rules' => array() );
+		$empty_conditions = array( 'enabled' => 0, 'conditions' => array() );
+
 		foreach ( $mappings as $id => $mapping ) {
 			$mappings[ $id ]['salesforce_record_types_allowed'] = isset( $mapping['salesforce_record_types_allowed'] ) ? maybe_unserialize( $mapping['salesforce_record_types_allowed'] ) : array();
 			$mappings[ $id ]['fields']                          = isset( $mapping['fields'] ) ? maybe_unserialize( $mapping['fields'] ) : array();
@@ -1276,6 +1329,16 @@ class Object_Sync_Sf_Mapping {
 			// format the sync triggers.
 			$sync_triggers                    = $this->maybe_upgrade_sync_triggers( $mappings[ $id ]['sync_triggers'], $mapping['version'], $mapping['id'] );
 			$mappings[ $id ]['sync_triggers'] = $sync_triggers;
+
+			// Decode Carkeek-fork JSON columns (graceful fallback for pre-migration rows).
+			$raw_relational                    = isset( $mapping['relational_rules'] ) ? $mapping['relational_rules'] : '';
+			$decoded_relational                = ( '' !== $raw_relational ) ? json_decode( $raw_relational, true ) : null;
+			$mappings[ $id ]['relational_rules'] = is_array( $decoded_relational ) ? $decoded_relational : $empty_relational;
+
+			$raw_conditions                   = isset( $mapping['pull_conditions'] ) ? $mapping['pull_conditions'] : '';
+			$decoded_conditions               = ( '' !== $raw_conditions ) ? json_decode( $raw_conditions, true ) : null;
+			$mappings[ $id ]['pull_conditions'] = is_array( $decoded_conditions ) ? $decoded_conditions : $empty_conditions;
+
 			if ( '' !== $record_type && ! in_array( $record_type, $mappings[ $id ]['salesforce_record_types_allowed'], true ) ) {
 				unset( $mappings[ $id ] );
 			}

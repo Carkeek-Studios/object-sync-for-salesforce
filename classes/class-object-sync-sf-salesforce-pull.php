@@ -1639,7 +1639,7 @@ class Object_Sync_Sf_Salesforce_Pull {
 			// we can then check to see if it has a mapping object
 			// we should only do this if the above hook didn't already set the $wordpress_id.
 			if ( null === $wordpress_id ) {
-				$wordpress_id = $this->wordpress->object_upsert( $salesforce_mapping['wordpress_object'], $upsert_key, $upsert_value, $upsert_methods, $params, $salesforce_mapping['pull_to_drafts'], true );
+				$wordpress_id = $this->wordpress->object_upsert( $salesforce_mapping['wordpress_object'], $upsert_key, $upsert_value, $upsert_methods, $params, $salesforce_mapping['pull_to_drafts'], $salesforce_mapping['pull_default_status'] ?? 'publish', true );
 			}
 
 			// placeholder mapping object.
@@ -1771,7 +1771,7 @@ class Object_Sync_Sf_Salesforce_Pull {
 				$this->sync_transients->set( 'salesforce_pulling_object_id', '', $salesforce_mapping['id'], $object['Id'] );
 				// now we can upsert the object in wp if we've gotten to this point
 				// this command will either create or update the object.
-				$result = $this->wordpress->object_upsert( $salesforce_mapping['wordpress_object'], $upsert_key, $upsert_value, $upsert_methods, $params, $salesforce_mapping['pull_to_drafts'] );
+				$result = $this->wordpress->object_upsert( $salesforce_mapping['wordpress_object'], $upsert_key, $upsert_value, $upsert_methods, $params, $salesforce_mapping['pull_to_drafts'], $salesforce_mapping['pull_default_status'] ?? 'publish' );
 			} else {
 				// No key or prematch field exists on this field map object, create a new object in WordPress.
 				$this->sync_transients->set( 'salesforce_pulling_' . $mapping_object_id, '', $salesforce_mapping['id'], 1, $seconds );

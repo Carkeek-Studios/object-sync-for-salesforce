@@ -149,6 +149,34 @@ class Object_Sync_Salesforce {
 	private $rest;
 
 	/**
+	 * Object_Sync_Sf_Environments class (Carkeek fork)
+	 *
+	 * @var Object_Sync_Sf_Environments
+	 */
+	public $environments;
+
+	/**
+	 * Object_Sync_Sf_Bulk_Sync class (Carkeek fork)
+	 *
+	 * @var Object_Sync_Sf_Bulk_Sync
+	 */
+	public $bulk_sync;
+
+	/**
+	 * Object_Sync_Sf_Relational_Sync class (Carkeek fork)
+	 *
+	 * @var Object_Sync_Sf_Relational_Sync
+	 */
+	public $relational_sync;
+
+	/**
+	 * Object_Sync_Sf_Pull_Conditions class (Carkeek fork)
+	 *
+	 * @var Object_Sync_Sf_Pull_Conditions
+	 */
+	public $pull_conditions;
+
+	/**
 	 * This is our constructor
 	 *
 	 * @param string $version is the plugin version.
@@ -262,6 +290,9 @@ class Object_Sync_Salesforce {
 
 		$this->composer_loaded = $this->composer_loaded();
 
+		// Environment switching must be available before credential lookup (Carkeek fork).
+		$this->environments = new Object_Sync_Sf_Environments();
+
 		$this->login_credentials = $this->get_login_credentials();
 
 		// methods for deactivation.
@@ -289,6 +320,20 @@ class Object_Sync_Salesforce {
 
 		// admin functionality.
 		new Object_Sync_Sf_Admin();
+
+		// Bulk sync AJAX handlers (Carkeek fork).
+		$this->bulk_sync = new Object_Sync_Sf_Bulk_Sync();
+
+		// Chained relational syncs (Carkeek fork).
+		$this->relational_sync = new Object_Sync_Sf_Relational_Sync();
+
+		// Conditional pull filtering (Carkeek fork).
+		$this->pull_conditions = new Object_Sync_Sf_Pull_Conditions();
+
+		// WP-CLI commands (Carkeek fork).
+		if ( defined( 'WP_CLI' ) && WP_CLI ) {
+			WP_CLI::add_command( 'osf', 'Object_Sync_Sf_Cli' );
+		}
 	}
 
 	/**
@@ -376,13 +421,27 @@ class Object_Sync_Salesforce {
 	 */
 	private function get_login_credentials() {
 
-		$consumer_key        = defined( 'OBJECT_SYNC_SF_SALESFORCE_CONSUMER_KEY' ) ? OBJECT_SYNC_SF_SALESFORCE_CONSUMER_KEY : get_option( $this->option_prefix . 'consumer_key', '' );
-		$consumer_secret     = defined( 'OBJECT_SYNC_SF_SALESFORCE_CONSUMER_SECRET' ) ? OBJECT_SYNC_SF_SALESFORCE_CONSUMER_SECRET : get_option( $this->option_prefix . 'consumer_secret', '' );
-		$callback_url        = defined( 'OBJECT_SYNC_SF_SALESFORCE_CALLBACK_URL' ) ? OBJECT_SYNC_SF_SALESFORCE_CALLBACK_URL : get_option( $this->option_prefix . 'callback_url', '' );
-		$login_base_url      = defined( 'OBJECT_SYNC_SF_SALESFORCE_LOGIN_BASE_URL' ) ? OBJECT_SYNC_SF_SALESFORCE_LOGIN_BASE_URL : get_option( $this->option_prefix . 'login_base_url', '' );
-		$authorize_url_path  = defined( 'OBJECT_SYNC_SF_SALESFORCE_AUTHORIZE_URL_PATH' ) ? OBJECT_SYNC_SF_SALESFORCE_AUTHORIZE_URL_PATH : get_option( $this->option_prefix . 'authorize_url_path', '' );
-		$token_url_path      = defined( 'OBJECT_SYNC_SF_SALESFORCE_TOKEN_URL_PATH' ) ? OBJECT_SYNC_SF_SALESFORCE_TOKEN_URL_PATH : get_option( $this->option_prefix . 'token_url_path', '' );
 		$sf_api_version_data = $this->get_salesforce_api_version();
+
+		// When multi-environment mode is active, pull credentials from the environments store.
+		// wp-config constants still take precedence when defined (they override everything).
+		if ( isset( $this->environments ) && $this->environments->is_active() ) {
+			$env_creds = $this->environments->get_active_credentials();
+
+			$consumer_key       = defined( 'OBJECT_SYNC_SF_SALESFORCE_CONSUMER_KEY' ) ? OBJECT_SYNC_SF_SALESFORCE_CONSUMER_KEY : $env_creds['consumer_key'];
+			$consumer_secret    = defined( 'OBJECT_SYNC_SF_SALESFORCE_CONSUMER_SECRET' ) ? OBJECT_SYNC_SF_SALESFORCE_CONSUMER_SECRET : $env_creds['consumer_secret'];
+			$callback_url       = defined( 'OBJECT_SYNC_SF_SALESFORCE_CALLBACK_URL' ) ? OBJECT_SYNC_SF_SALESFORCE_CALLBACK_URL : $env_creds['callback_url'];
+			$login_base_url     = defined( 'OBJECT_SYNC_SF_SALESFORCE_LOGIN_BASE_URL' ) ? OBJECT_SYNC_SF_SALESFORCE_LOGIN_BASE_URL : $env_creds['login_url'];
+			$authorize_url_path = defined( 'OBJECT_SYNC_SF_SALESFORCE_AUTHORIZE_URL_PATH' ) ? OBJECT_SYNC_SF_SALESFORCE_AUTHORIZE_URL_PATH : $env_creds['authorize_path'];
+			$token_url_path     = defined( 'OBJECT_SYNC_SF_SALESFORCE_TOKEN_URL_PATH' ) ? OBJECT_SYNC_SF_SALESFORCE_TOKEN_URL_PATH : $env_creds['token_path'];
+		} else {
+			$consumer_key       = defined( 'OBJECT_SYNC_SF_SALESFORCE_CONSUMER_KEY' ) ? OBJECT_SYNC_SF_SALESFORCE_CONSUMER_KEY : get_option( $this->option_prefix . 'consumer_key', '' );
+			$consumer_secret    = defined( 'OBJECT_SYNC_SF_SALESFORCE_CONSUMER_SECRET' ) ? OBJECT_SYNC_SF_SALESFORCE_CONSUMER_SECRET : get_option( $this->option_prefix . 'consumer_secret', '' );
+			$callback_url       = defined( 'OBJECT_SYNC_SF_SALESFORCE_CALLBACK_URL' ) ? OBJECT_SYNC_SF_SALESFORCE_CALLBACK_URL : get_option( $this->option_prefix . 'callback_url', '' );
+			$login_base_url     = defined( 'OBJECT_SYNC_SF_SALESFORCE_LOGIN_BASE_URL' ) ? OBJECT_SYNC_SF_SALESFORCE_LOGIN_BASE_URL : get_option( $this->option_prefix . 'login_base_url', '' );
+			$authorize_url_path = defined( 'OBJECT_SYNC_SF_SALESFORCE_AUTHORIZE_URL_PATH' ) ? OBJECT_SYNC_SF_SALESFORCE_AUTHORIZE_URL_PATH : get_option( $this->option_prefix . 'authorize_url_path', '' );
+			$token_url_path     = defined( 'OBJECT_SYNC_SF_SALESFORCE_TOKEN_URL_PATH' ) ? OBJECT_SYNC_SF_SALESFORCE_TOKEN_URL_PATH : get_option( $this->option_prefix . 'token_url_path', '' );
+		}
 
 		$login_credentials = array(
 			'consumer_key'    => $consumer_key,

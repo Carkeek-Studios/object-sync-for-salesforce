@@ -156,9 +156,12 @@ class Object_Sync_Sf_Activate {
 			push_async tinyint(1) NOT NULL DEFAULT '0',
 			push_drafts tinyint(1) NOT NULL DEFAULT '0',
 			pull_to_drafts tinyint(1) NOT NULL DEFAULT '0',
+			pull_default_status varchar(20) NOT NULL DEFAULT 'publish',
 			always_delete_object_maps_on_delete tinyint(1) NOT NULL DEFAULT '0',
 			weight tinyint(1) NOT NULL DEFAULT '0',
 			version varchar(255) NOT NULL DEFAULT '',
+			relational_rules text NOT NULL DEFAULT '',
+			pull_conditions text NOT NULL DEFAULT '',
 			PRIMARY KEY  (id),
 			UNIQUE KEY name (name),
 			KEY name_sf_type_wordpress_type (wordpress_object,salesforce_object),
@@ -257,8 +260,30 @@ class Object_Sync_Sf_Activate {
 			$this->log_trigger_settings();
 			$this->wordpress_salesforce_tables();
 		} else {
+			// Even on a current version, run dbDelta if Carkeek-added columns are missing.
+			$this->maybe_add_carkeek_columns();
 			return true;
 		}
+	}
+
+	/**
+	 * Ensure Carkeek-fork columns exist in the fieldmap table.
+	 * dbDelta adds missing columns without touching existing data.
+	 */
+	private function maybe_add_carkeek_columns() {
+		$carkeek_schema = get_option( $this->option_prefix . 'carkeek_schema_version', '' );
+		if ( '1.4' === $carkeek_schema ) {
+			return;
+		}
+		$table   = $this->wpdb->prefix . 'object_sync_sf_field_map';
+		$columns = $this->wpdb->get_col( "SHOW COLUMNS FROM {$table}", 0 );
+		$needs_update = ! in_array( 'relational_rules', $columns, true )
+			|| ! in_array( 'pull_conditions', $columns, true )
+			|| ! in_array( 'pull_default_status', $columns, true );
+		if ( $needs_update ) {
+			$this->wordpress_salesforce_tables();
+		}
+		update_option( $this->option_prefix . 'carkeek_schema_version', '1.4' );
 	}
 
 	/**
