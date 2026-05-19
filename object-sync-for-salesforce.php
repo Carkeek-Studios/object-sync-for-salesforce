@@ -1,10 +1,11 @@
 <?php
 /**
  * Plugin Name: Object Sync for Salesforce
- * Description: Object Sync for Salesforce maps and syncs data between Salesforce objects and WordPress objects.
- * Version: 2.2.13
- * Author: MinnPost
- * Author URI: https://code.minnpost.com
+ * Description: Fork of Object Sync for Salesforce plugin, with customizations to allow bulk importing and chaining of syncs.
+ * Version: 3.0.00
+ * Author: Carkeek Studios / MinnPost
+ * Author URI: https://carkeekstudios.com
+ * GitHub Plugin URI: https://github.com/Carkeek-Studios/object-sync-for-salesforce
  * License: GPL2+
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: object-sync-for-salesforce
