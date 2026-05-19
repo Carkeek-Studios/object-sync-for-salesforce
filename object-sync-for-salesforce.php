@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Object Sync for Salesforce
  * Description: Fork of Object Sync for Salesforce plugin, with customizations to allow bulk importing and chaining of syncs.
- * Version: 3.0.00
+ * Version: 3.0.01
  * Author: Carkeek Studios / MinnPost
  * Author URI: https://carkeekstudios.com
  * GitHub Plugin URI: https://github.com/Carkeek-Studios/object-sync-for-salesforce

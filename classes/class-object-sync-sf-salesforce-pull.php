@@ -1822,6 +1822,11 @@ class Object_Sync_Sf_Salesforce_Pull {
 			$mapping_object['last_sync_status']  = $this->mappings->status_success;
 			$mapping_object['last_sync_message'] = esc_html__( 'Mapping object updated via function: ', 'object-sync-for-salesforce' ) . __FUNCTION__;
 
+			// save the wordpress id to the mapping object in the synced object.
+			if ( 0 !== $wordpress_id ) {
+				$synced_object['mapping_object']['wordpress_id'] = $wordpress_id;
+			}
+
 			// hook for pull success.
 			do_action( $this->option_prefix . 'pull_success', $op, $result, $synced_object );
 		} else {

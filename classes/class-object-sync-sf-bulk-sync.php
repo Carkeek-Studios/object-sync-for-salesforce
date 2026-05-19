@@ -156,6 +156,15 @@ class Object_Sync_Sf_Bulk_Sync {
 			);
 		}
 
+		if ( ! preg_match( '/^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?$/', $sf_id ) ) {
+			return array(
+				'sf_id'   => $sf_id,
+				'sf_type' => '',
+				'status'  => 'error',
+				'message' => __( 'Invalid Salesforce ID format.', 'object-sync-for-salesforce' ),
+			);
+		}
+
 		$osf = object_sync_for_salesforce();
 		if ( ! $osf || ! isset( $osf->pull ) ) {
 			return array(
@@ -223,12 +232,23 @@ class Object_Sync_Sf_Bulk_Sync {
 			wp_send_json_error( array( 'message' => __( 'No Salesforce IDs provided.', 'object-sync-for-salesforce' ) ) );
 		}
 
+		$truncated = false;
+		if ( count( $sf_ids ) > 200 ) {
+			$sf_ids    = array_slice( $sf_ids, 0, 200 );
+			$truncated = true;
+		}
+
 		$results = array();
 		foreach ( $sf_ids as $sf_id ) {
 			$results[] = $this->process_pull( $sf_id );
 		}
 
-		wp_send_json_success( array( 'results' => $results ) );
+		$response = array( 'results' => $results );
+		if ( $truncated ) {
+			$response['warning'] = __( 'Only the first 200 IDs were processed. Submit in batches of 200 or fewer.', 'object-sync-for-salesforce' );
+		}
+
+		wp_send_json_success( $response );
 	}
 
 	/**
