@@ -62,6 +62,13 @@ class Object_Sync_Sf_Relational_Sync {
 
 		$wp_id = isset( $map_object['wordpress_id'] ) ? (int) $map_object['wordpress_id'] : 0;
 		if ( ! $wp_id ) {
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				error_log( sprintf(
+					'[OSF Relational Sync] handle_pull_success: skipping — wordpress_id is 0 for sf_id %s.',
+					esc_attr( $sf_id )
+				) );
+			}
 			return;
 		}
 
@@ -69,39 +76,41 @@ class Object_Sync_Sf_Relational_Sync {
 		// same record (e.g. from a rules-driven upsert) is a no-op.
 		self::$syncing_ids[ $sf_id ] = true;
 
-		foreach ( $relational_rules['rules'] as $rule ) {
-			if ( ! isset( $rule['sf_field'], $rule['target_object'], $rule['acf_field'] ) ) {
-				continue;
+		try {
+			foreach ( $relational_rules['rules'] as $rule ) {
+				if ( ! isset( $rule['sf_field'], $rule['target_object'], $rule['acf_field'] ) ) {
+					continue;
+				}
+				$this->process_rule( $rule, $sf_object, $wp_id );
 			}
-			$this->process_rule( $rule, $sf_object, $wp_id );
-		}
 
-		// Allow programmatic rules registered via filter.
-		$extra_rules = apply_filters(
-			'object_sync_for_salesforce_relational_rules',
-			array(),
-			$mapping['salesforce_object'] ?? '',
-			$sf_object
-		);
-		foreach ( $extra_rules as $rule ) {
-			if ( ! isset( $rule['source_sf_object'], $rule['relationship_field'], $rule['target_sf_object'], $rule['target_wp_field'] ) ) {
-				continue;
-			}
-			if ( ( $mapping['salesforce_object'] ?? '' ) !== $rule['source_sf_object'] ) {
-				continue;
-			}
-			$this->process_rule(
-				array(
-					'sf_field'      => $rule['relationship_field'],
-					'target_object' => $rule['target_sf_object'],
-					'acf_field'     => $rule['target_wp_field'],
-				),
-				$sf_object,
-				$wp_id
+			// Allow programmatic rules registered via filter.
+			$extra_rules = apply_filters(
+				'object_sync_for_salesforce_relational_rules',
+				array(),
+				$mapping['salesforce_object'] ?? '',
+				$sf_object
 			);
+			foreach ( $extra_rules as $rule ) {
+				if ( ! isset( $rule['source_sf_object'], $rule['relationship_field'], $rule['target_sf_object'], $rule['target_wp_field'] ) ) {
+					continue;
+				}
+				if ( ( $mapping['salesforce_object'] ?? '' ) !== $rule['source_sf_object'] ) {
+					continue;
+				}
+				$this->process_rule(
+					array(
+						'sf_field'      => $rule['relationship_field'],
+						'target_object' => $rule['target_sf_object'],
+						'acf_field'     => $rule['target_wp_field'],
+					),
+					$sf_object,
+					$wp_id
+				);
+			}
+		} finally {
+			unset( self::$syncing_ids[ $sf_id ] );
 		}
-
-		unset( self::$syncing_ids[ $sf_id ] );
 	}
 
 	/**
