@@ -48,6 +48,19 @@
 	box-sizing: border-box;
 }
 
+/* ── Object type selector ────────────────────────────────────── */
+
+.csfbs-field-label {
+	display: inline-block;
+	margin-right: 8px;
+	font-weight: 600;
+}
+
+.csfbs-object-select {
+	min-width: 260px;
+	max-width: 100%;
+}
+
 /* ── Action rows (button + spinner) ──────────────────────────── */
 
 .csfbs-action-row {

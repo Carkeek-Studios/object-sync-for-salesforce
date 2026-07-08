@@ -16,8 +16,33 @@
 	<div class="csfbs-section">
 		<h2><?php esc_html_e( 'Bulk Pull from Salesforce (SF → WP)', 'object-sync-for-salesforce' ); ?></h2>
 		<p class="description">
-			<?php esc_html_e( 'Paste Salesforce record IDs below (one per line) or upload a CSV file. The plugin will auto-detect the object type from your configured fieldmaps and pull each record into WordPress.', 'object-sync-for-salesforce' ); ?>
+			<?php esc_html_e( 'Paste Salesforce record IDs below (one per line) or upload a CSV file, choose the object type, and pull each record into WordPress. Leave the type on "Auto-detect" to resolve each ID from its Salesforce ID prefix.', 'object-sync-for-salesforce' ); ?>
 		</p>
+
+		<?php
+		// Build the list of Salesforce object types from configured fieldmaps.
+		$osf_fieldmaps   = $this->mappings->get_fieldmaps();
+		$sf_object_types = array();
+		if ( is_array( $osf_fieldmaps ) ) {
+			foreach ( $osf_fieldmaps as $osf_fieldmap ) {
+				if ( ! empty( $osf_fieldmap['salesforce_object'] ) ) {
+					$sf_object_types[ $osf_fieldmap['salesforce_object'] ] = $osf_fieldmap['salesforce_object'];
+				}
+			}
+			ksort( $sf_object_types );
+		}
+		?>
+		<div class="csfbs-input-row">
+			<label for="csfbs-bulk-pull-object" class="csfbs-field-label">
+				<?php esc_html_e( 'Salesforce object type:', 'object-sync-for-salesforce' ); ?>
+			</label>
+			<select id="csfbs-bulk-pull-object" class="csfbs-object-select">
+				<option value=""><?php esc_html_e( 'Auto-detect (by Salesforce ID prefix)', 'object-sync-for-salesforce' ); ?></option>
+				<?php foreach ( $sf_object_types as $osf_sf_type ) : ?>
+					<option value="<?php echo esc_attr( $osf_sf_type ); ?>"><?php echo esc_html( $osf_sf_type ); ?></option>
+				<?php endforeach; ?>
+			</select>
+		</div>
 
 		<div class="csfbs-input-row">
 			<textarea

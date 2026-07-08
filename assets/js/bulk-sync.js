@@ -143,7 +143,8 @@
 				$( '#csfbs-bulk-pull-tbody' ),
 				$( '#csfbs-bulk-pull-results' ),
 				$( '#csfbs-bulk-pull-btn' ).siblings( '.csfbs-spinner' ),
-				$( '#csfbs-bulk-pull-btn' )
+				$( '#csfbs-bulk-pull-btn' ),
+				$( '#csfbs-bulk-pull-object' ).val()
 			);
 		},
 
@@ -207,8 +208,9 @@
 		 * @param {jQuery}   $wrap   Results wrapper element (shown on first batch).
 		 * @param {jQuery}   $spinner Spinner element.
 		 * @param {jQuery}   $btn    Trigger button (disabled during processing).
+		 * @param {string}   [sfObject] Optional Salesforce object type; empty = auto-detect.
 		 */
-		doSfPull: function ( ids, action, $tbody, $wrap, $spinner, $btn ) {
+		doSfPull: function ( ids, action, $tbody, $wrap, $spinner, $btn, sfObject ) {
 			var batches = [];
 			for ( var i = 0; i < ids.length; i += SF_BATCH_SIZE ) {
 				batches.push( ids.slice( i, i + SF_BATCH_SIZE ) );
@@ -232,9 +234,10 @@
 					type: 'POST',
 					url:  osfBulkSyncData.ajaxUrl,
 					data: {
-						action: action,
-						nonce:  osfBulkSyncData.nonce,
-						sf_ids: batch.join( '\n' ),
+						action:            action,
+						nonce:             osfBulkSyncData.nonce,
+						sf_ids:            batch.join( '\n' ),
+						salesforce_object: sfObject || '',
 					},
 				} ).done( function ( response ) {
 					if ( response.success && response.data.results ) {

@@ -421,6 +421,36 @@ class Object_Sync_Sf_Mapping {
 	 * @param array $salesforce_fields The fields for the Salesforce side of the mapping.
 	 * @return int  the last inserted ID.
 	 */
+	/**
+	 * Build a fieldmap label that won't collide with an existing fieldmap's unique name.
+	 *
+	 * The field_map table has a UNIQUE key on `name` (derived from the label via
+	 * sanitize_title). Cloning pre-fills the source label verbatim, so saving fails the
+	 * insert and the clone silently disappears. This appends " (copy)" — incrementing until
+	 * the resulting name is free — so cloned fieldmaps save by default.
+	 *
+	 * @param string $base_label The label to base the unique variant on.
+	 * @return string A label whose sanitized name is not already in use.
+	 */
+	public function get_unique_fieldmap_label( $base_label ) {
+		$existing_names = array();
+		$all            = $this->get_fieldmaps();
+		if ( is_array( $all ) ) {
+			foreach ( $all as $fieldmap ) {
+				if ( ! empty( $fieldmap['name'] ) ) {
+					$existing_names[] = $fieldmap['name'];
+				}
+			}
+		}
+		$candidate = $base_label . ' (copy)';
+		$counter   = 2;
+		while ( in_array( sanitize_title( $candidate ), $existing_names, true ) ) {
+			$candidate = $base_label . ' (copy ' . $counter . ')';
+			$counter++;
+		}
+		return $candidate;
+	}
+
 	public function create_fieldmap( $posted = array(), $wordpress_fields = array(), $salesforce_fields = array() ) {
 		$data = $this->setup_fieldmap_data( $posted, $wordpress_fields, $salesforce_fields );
 		if ( ! isset( $posted['version'] ) && version_compare( $this->version, '1.2.5', '>=' ) ) {
