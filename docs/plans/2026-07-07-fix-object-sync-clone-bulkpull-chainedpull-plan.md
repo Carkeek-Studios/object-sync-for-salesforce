@@ -312,9 +312,12 @@ follow-up; the resolve-at-write approach above fixes the bug without a schema/UI
 - [x] Existing relationship values are replaced (overwrite mode), consistent with the decision.
 
 ### Quality gates
-- [ ] `phpcs` clean on changed PHP files (repo `phpcs.xml.dist`).
+- [x] `php -l` clean on all changed PHP; `node --check` clean on all 3 JS bundles.
+- [x] `phpcs` introduces no new violations in changed code (pre-existing fork style
+      debt left untouched to keep the diff focused).
 - [ ] Manual verification of each flow on the test site
-      (`salesforce-for-volunteers-testing`) with real Campaign/Job records.
+      (`salesforce-for-volunteers-testing`) with real Campaign/Job records — **pending**
+      (needs the live Salesforce connection; cannot be driven from the coding session).
 
 ---
 
