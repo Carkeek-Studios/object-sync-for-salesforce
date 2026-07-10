@@ -78,7 +78,26 @@ class Object_Sync_Sf_Bulk_Sync {
 			return false;
 		}
 
-		// 1. Check existing object map — gives us wordpress_object.
+		// 1. Resolve the true SF object type from the ID's 3-char key prefix.
+		// This is authoritative and correctly disambiguates when multiple Salesforce
+		// objects map to the same WordPress post type (e.g. Campaign + Job), which
+		// looking up the fieldmap by wordpress_object cannot do.
+		$sfapi = isset( $osf->salesforce['sfapi'] ) ? $osf->salesforce['sfapi'] : null;
+		if ( $sfapi && method_exists( $sfapi, 'get_sobject_type' ) ) {
+			$sf_type = $sfapi->get_sobject_type( $sf_id );
+			if ( ! empty( $sf_type ) ) {
+				$wp_type = $this->wp_type_for_sf_type( $sf_type, $osf );
+				if ( ! empty( $wp_type ) ) {
+					return array(
+						'sf_type' => $sf_type,
+						'wp_type' => $wp_type,
+					);
+				}
+			}
+		}
+
+		// 2. Fall back to the existing object map — gives us wordpress_object.
+		// Only trustworthy when a single fieldmap uses that post type.
 		$maps = $osf->mappings->load_all_by_salesforce( $sf_id );
 		if ( ! empty( $maps ) && is_array( $maps ) ) {
 			$map     = $maps[0];
@@ -86,7 +105,7 @@ class Object_Sync_Sf_Bulk_Sync {
 
 			if ( ! empty( $wp_type ) ) {
 				$fieldmaps = $osf->mappings->get_fieldmaps( null, array( 'wordpress_object' => $wp_type ) );
-				if ( ! empty( $fieldmaps ) && is_array( $fieldmaps ) ) {
+				if ( ! empty( $fieldmaps ) && is_array( $fieldmaps ) && 1 === count( $fieldmaps ) ) {
 					$sf_type = isset( $fieldmaps[0]['salesforce_object'] ) ? $fieldmaps[0]['salesforce_object'] : '';
 					if ( ! empty( $sf_type ) ) {
 						return array(
@@ -98,7 +117,7 @@ class Object_Sync_Sf_Bulk_Sync {
 			}
 		}
 
-		// 2. Try each configured fieldmap.
+		// 3. Try each configured fieldmap.
 		$fieldmaps = $osf->mappings->get_fieldmaps();
 		if ( empty( $fieldmaps ) || ! is_array( $fieldmaps ) ) {
 			return false;
@@ -137,14 +156,43 @@ class Object_Sync_Sf_Bulk_Sync {
 	}
 
 	/**
+	 * Find the WordPress object type mapped to a given Salesforce object type.
+	 *
+	 * @param string $sf_type Salesforce object API name (e.g. "Campaign", "Job__c").
+	 * @param object $osf     Object Sync for Salesforce instance.
+	 * @return string wordpress_object, or '' if no fieldmap uses this SF type.
+	 */
+	private function wp_type_for_sf_type( string $sf_type, $osf ): string {
+		$fieldmaps = $osf->mappings->get_fieldmaps( null, array( 'salesforce_object' => $sf_type ) );
+		if ( ! empty( $fieldmaps ) && is_array( $fieldmaps ) && isset( $fieldmaps[0]['wordpress_object'] ) ) {
+			return (string) $fieldmaps[0]['wordpress_object'];
+		}
+		return '';
+	}
+
+	/**
+	 * Whether a Salesforce object type is used by at least one configured fieldmap.
+	 *
+	 * @param string $sf_type Salesforce object API name.
+	 * @param object $osf     Object Sync for Salesforce instance.
+	 * @return bool
+	 */
+	private function is_configured_sf_type( string $sf_type, $osf ): bool {
+		return '' !== $this->wp_type_for_sf_type( $sf_type, $osf );
+	}
+
+	/**
 	 * Process a single SF ID pull and return a result array.
 	 *
 	 * Public so WP-CLI and other callers can use it without going through AJAX.
 	 *
-	 * @param string $sf_id Salesforce record ID.
+	 * @param string $sf_id         Salesforce record ID.
+	 * @param string $explicit_type Optional Salesforce object type chosen by the operator.
+	 *                              When set and configured, it is used directly instead of
+	 *                              inferring the type from the ID.
 	 * @return array{sf_id: string, sf_type: string, status: string, message: string}
 	 */
-	public function process_pull( string $sf_id ): array {
+	public function process_pull( string $sf_id, string $explicit_type = '' ): array {
 		$sf_id = sanitize_text_field( $sf_id );
 
 		if ( empty( $sf_id ) ) {
@@ -175,14 +223,22 @@ class Object_Sync_Sf_Bulk_Sync {
 			);
 		}
 
-		$type_info = $this->resolve_sf_type( $sf_id, $osf );
+		// An operator-chosen type takes precedence, as long as it's a configured fieldmap.
+		if ( '' !== $explicit_type && $this->is_configured_sf_type( $explicit_type, $osf ) ) {
+			$type_info = array(
+				'sf_type' => $explicit_type,
+				'wp_type' => $this->wp_type_for_sf_type( $explicit_type, $osf ),
+			);
+		} else {
+			$type_info = $this->resolve_sf_type( $sf_id, $osf );
+		}
 
 		if ( false === $type_info || empty( $type_info['sf_type'] ) ) {
 			return array(
 				'sf_id'   => $sf_id,
 				'sf_type' => '',
 				'status'  => 'error',
-				'message' => __( 'No matching fieldmap found for this Salesforce ID.', 'object-sync-for-salesforce' ),
+				'message' => __( 'No matching Salesforce object type for this ID. Choose an object type above or add a fieldmap for it.', 'object-sync-for-salesforce' ),
 			);
 		}
 
@@ -232,6 +288,10 @@ class Object_Sync_Sf_Bulk_Sync {
 			wp_send_json_error( array( 'message' => __( 'No Salesforce IDs provided.', 'object-sync-for-salesforce' ) ) );
 		}
 
+		// Optional operator-selected object type for this batch. Empty = auto-detect.
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- nonce checked in verify_request().
+		$explicit_type = isset( $_POST['salesforce_object'] ) ? sanitize_text_field( wp_unslash( $_POST['salesforce_object'] ) ) : '';
+
 		$truncated = false;
 		if ( count( $sf_ids ) > 200 ) {
 			$sf_ids    = array_slice( $sf_ids, 0, 200 );
@@ -240,7 +300,7 @@ class Object_Sync_Sf_Bulk_Sync {
 
 		$results = array();
 		foreach ( $sf_ids as $sf_id ) {
-			$results[] = $this->process_pull( $sf_id );
+			$results[] = $this->process_pull( $sf_id, $explicit_type );
 		}
 
 		$response = array( 'results' => $results );

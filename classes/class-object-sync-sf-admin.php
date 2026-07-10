@@ -685,7 +685,7 @@ class Object_Sync_Sf_Admin {
 							$map = $this->mappings->get_fieldmaps( isset( $get_data['id'] ) ? sanitize_key( $get_data['id'] ) : '' );
 						}
 
-						if ( 'add' === $method || ( isset( $map ) && is_array( $map ) && isset( $map['id'] ) ) ) {
+						if ( 'add' === $method || 'clone' === $method || ( isset( $map ) && is_array( $map ) && isset( $map['id'] ) ) ) {
 							if ( isset( $map ) && is_array( $map ) && isset( $map['id'] ) ) {
 								$label                               = $map['label'];
 								$fieldmap_status                     = $map['fieldmap_status'];
@@ -704,6 +704,19 @@ class Object_Sync_Sf_Admin {
 								$weight                              = $map['weight'];
 								$relational_rules                    = isset( $map['relational_rules'] ) ? $map['relational_rules'] : array( 'enabled' => 0, 'rules' => array() );
 								$pull_conditions                     = isset( $map['pull_conditions'] ) ? $map['pull_conditions'] : array( 'enabled' => 0, 'conditions' => array() );
+
+								// Fresh clone (not an error re-render): pre-fill a unique label so the
+								// new fieldmap's `name` doesn't collide with the source's UNIQUE key —
+								// that collision fails the insert and the clone silently disappears.
+								if ( 'clone' === $method && ! isset( $posted ) ) {
+									$label = $this->mappings->get_unique_fieldmap_label( $map['label'] );
+								}
+							} elseif ( isset( $posted ) && is_array( $posted ) ) {
+								// Error re-render for add/clone (loaded from the transient): restore the
+								// operator's label and object selections so their work isn't lost.
+								$label             = isset( $posted['label'] ) ? $posted['label'] : '';
+								$wordpress_object  = isset( $posted['wordpress_object'] ) ? $posted['wordpress_object'] : '';
+								$salesforce_object = isset( $posted['salesforce_object'] ) ? $posted['salesforce_object'] : '';
 							}
 							if ( 'add' === $method || 'edit' === $method || 'clone' === $method ) {
 								require_once plugin_dir_path( $this->file ) . '/templates/admin/fieldmaps-add-edit-clone.php';
@@ -1528,7 +1541,7 @@ class Object_Sync_Sf_Admin {
 			),
 			'fieldmap'                => array(
 				'condition'   => isset( $get_data['transient'] ),
-				'message'     => esc_html__( 'Errors kept this fieldmap from being saved.', 'object-sync-for-salesforce' ),
+				'message'     => esc_html__( 'Errors kept this fieldmap from being saved. Make sure the label is unique (no other fieldmap uses the same name) and that all required fields are set.', 'object-sync-for-salesforce' ),
 				'type'        => 'error',
 				'dismissible' => true,
 			),

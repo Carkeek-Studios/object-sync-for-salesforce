@@ -163,7 +163,34 @@ class Object_Sync_Sf_Relational_Sync {
 		}
 
 		if ( $related_wp_id && function_exists( 'update_field' ) ) {
-			update_field( $acf_field, array( $related_wp_id ), $wp_id );
+			// ACF only writes the reference meta (`_field_name` = field key) correctly when
+			// update_field() is given the field KEY, not the field name. If the rule stored a
+			// field name, resolve it to its key first so the relationship reads back reliably.
+			$field_key = $this->resolve_acf_field_key( $acf_field );
+			update_field( $field_key, array( $related_wp_id ), $wp_id );
 		}
+	}
+
+	/**
+	 * Resolve an ACF field reference to its field key (e.g. `field_abc123`).
+	 *
+	 * ACF's update_field() writes the `_field_name` reference meta correctly only when
+	 * passed a field key. A value that is already a key is returned as-is; a field name is
+	 * looked up via acf_get_field(). Falls back to the original value if it can't resolve.
+	 *
+	 * @param string $acf_field ACF field key or name from the relational rule.
+	 * @return string The field key when resolvable, otherwise the original reference.
+	 */
+	private function resolve_acf_field_key( string $acf_field ): string {
+		if ( 0 === strpos( $acf_field, 'field_' ) ) {
+			return $acf_field;
+		}
+		if ( function_exists( 'acf_get_field' ) ) {
+			$field_obj = acf_get_field( $acf_field );
+			if ( is_array( $field_obj ) && ! empty( $field_obj['key'] ) ) {
+				return $field_obj['key'];
+			}
+		}
+		return $acf_field;
 	}
 }
