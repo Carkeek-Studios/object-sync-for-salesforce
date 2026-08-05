@@ -1777,7 +1777,7 @@ class Object_Sync_Sf_Salesforce_Pull {
 				$this->sync_transients->set( 'salesforce_pulling_' . $mapping_object_id, '', $salesforce_mapping['id'], 1, $seconds );
 				$this->sync_transients->set( 'salesforce_pulling_object_id', '', $salesforce_mapping['id'], $mapping_object_id );
 				// now we can create the object in wp if we've gotten to this point.
-				$result = $this->wordpress->object_create( $salesforce_mapping['wordpress_object'], $params );
+				$result = $this->wordpress->object_create( $salesforce_mapping['wordpress_object'], $params, $salesforce_mapping['pull_default_status'] ?? 'publish' );
 			} // End if() statement.
 		} catch ( Object_Sync_Sf_Exception $e ) {
 			$result['errors'] = $e->getMessage();

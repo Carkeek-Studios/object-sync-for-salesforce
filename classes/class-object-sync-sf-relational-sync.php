@@ -120,7 +120,8 @@ class Object_Sync_Sf_Relational_Sync {
 	 * @param array $rule      {
 	 *     @type string $sf_field      SF field on the current object that holds the related SF ID.
 	 *     @type string $target_object SF object type of the related record.
-	 *     @type string $acf_field     ACF field key or name on the current WP post.
+	 *     @type string $acf_field     ACF field KEY (e.g. field_68f8647c25499) on the current WP post.
+	 *                                 Must be a key, NOT a field name. See TODO below.
 	 * }
 	 * @param array $sf_object Full Salesforce field-value map for the current record.
 	 * @param int   $wp_id    WP post ID of the current record.
@@ -162,6 +163,17 @@ class Object_Sync_Sf_Relational_Sync {
 			$related_wp_id = (int) $maps[0]['wordpress_id'];
 		}
 
+		// TODO: $acf_field MUST be an ACF field key (starts with "field_"), never a field name.
+		// update_field() accepts both, but passing a name causes ACF to resolve it via a DB
+		// lookup. If the ACF field group record in the DB is out of sync with the JSON
+		// definition (e.g. after a failed ACF sync), ACF can resolve to the wrong name and
+		// write the value and reference rows under corrupted meta keys — e.g. writing the
+		// VALUE to _fieldname and the REFERENCE to __fieldname instead of the correct keys.
+		// This was confirmed in production: a rule configured with field name "vol_shift_vol_job_wp"
+		// wrote to _vol_shift_vol_job_wp (wrong) because ACF's DB record had a stale name with a
+		// leading underscore. The fix: always supply the literal field key in rule config.
+		// Future improvement: validate that $acf_field starts with "field_" and log a warning
+		// (or bail) if it does not, so misconfigured rules fail loudly instead of silently.
 		if ( $related_wp_id && function_exists( 'update_field' ) ) {
 			// ACF only writes the reference meta (`_field_name` = field key) correctly when
 			// update_field() is given the field KEY, not the field name. If the rule stored a
