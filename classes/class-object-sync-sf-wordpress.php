@@ -654,6 +654,7 @@ class Object_Sync_Sf_WordPress {
 	 *
 	 * @param string $name Object type name, E.g., user, post, comment.
 	 * @param array  $params Values of the fields to set for the object.
+	 * @param string $pull_default_status The post status to use for new posts created by a pull from Salesforce.
 	 *
 	 * @return array
 	 *   data:
@@ -666,7 +667,7 @@ class Object_Sync_Sf_WordPress {
 	 *
 	 * part of CRUD for WordPress objects
 	 */
-	public function object_create( $name, $params ) {
+	public function object_create( $name, $params, $pull_default_status = 'publish' ) {
 
 		$structure = $this->get_wordpress_table_structure( $name );
 		$id_field  = $structure['id_field'];
@@ -676,7 +677,7 @@ class Object_Sync_Sf_WordPress {
 				$result = $this->user_create( $params, $id_field );
 				break;
 			case 'post':
-				$result = $this->post_create( $params, $id_field );
+				$result = $this->post_create( $params, $id_field, 'post', $pull_default_status );
 				break;
 			case 'attachment':
 				$result = $this->attachment_create( $params, $id_field );
@@ -697,18 +698,19 @@ class Object_Sync_Sf_WordPress {
 				 * $success should be a boolean value
 					$result = array( 'data' => array( $id_field => $post_id, 'success' => $success ), 'errors' => $errors );
 				 * use hook like: add_filter( 'object_sync_for_salesforce_create_custom_wordpress_item', add_object, 10, 1 );
-				 * the one param is: array( 'name' => objecttype, 'params' => array_of_params, 'id_field' => idfield )
+				 * the one param is: array( 'name' => objecttype, 'params' => array_of_params, 'id_field' => idfield, 'pull_default_status' => pulldefaultstatus )
 				 */
 				// Check to see if someone is calling the filter, and apply it if so.
 				if ( ! has_filter( $this->option_prefix . 'create_custom_wordpress_item' ) ) {
-					$result = $this->post_create( $params, $id_field, $name );
+					$result = $this->post_create( $params, $id_field, $name, $pull_default_status );
 				} else {
 					$result = apply_filters(
 						$this->option_prefix . 'create_custom_wordpress_item',
 						array(
-							'params'   => $params,
-							'name'     => $name,
-							'id_field' => $id_field,
+							'params'              => $params,
+							'name'                => $name,
+							'id_field'            => $id_field,
+							'pull_default_status' => $pull_default_status,
 						)
 					);
 				}
