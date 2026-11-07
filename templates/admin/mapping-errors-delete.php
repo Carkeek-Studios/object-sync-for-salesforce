@@ -12,6 +12,7 @@
 	<input type="hidden" name="redirect_url_success" value="<?php echo esc_url( $success_url ); ?>" />
 	<input type="hidden" name="id" value="<?php echo absint( $map_row['id'] ); ?>" />
 	<input type="hidden" name="action" value="delete_object_map">
+	<?php $this->admin_nonce_field(); ?>
 	<h2><?php echo esc_html__( 'Are you sure you want to delete this mapping object?', 'object-sync-for-salesforce' ); ?></h2>
 	<p>
 		<?php

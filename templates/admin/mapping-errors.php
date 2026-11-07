@@ -16,6 +16,7 @@
 	<input type="hidden" name="redirect_url_error" value="<?php echo esc_url( $error_url ); ?>">
 	<input type="hidden" name="redirect_url_success" value="<?php echo esc_url( $success_url ); ?>">
 	<input type="hidden" name="action" value="delete_object_map">
+	<?php $this->admin_nonce_field(); ?>
 	<?php if ( isset( $mapping_error_transient ) ) { ?>
 	<input type="hidden" name="mapping_error_transient" value="<?php echo esc_html( $mapping_error_transient ); ?>">
 	<?php } ?>
