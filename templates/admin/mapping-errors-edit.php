@@ -14,6 +14,7 @@
 	<input type="hidden" name="transient" value="<?php echo esc_html( $transient ); ?>" />
 	<?php } ?>
 	<input type="hidden" name="action" value="post_object_map" >
+	<?php $this->admin_nonce_field(); ?>
 	<input type="hidden" name="method" value="<?php echo esc_attr( $method ); ?>" />
 	<?php if ( 'edit' === $method ) { ?>
 	<input type="hidden" name="id" value="<?php echo absint( $map_row['id'] ); ?>" />

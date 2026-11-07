@@ -196,41 +196,19 @@ class Object_Sync_Sf_Rest {
 	 * @param WP_REST_Request $request the request object sent to the API.
 	 */
 	public function can_process( WP_REST_Request $request ) {
-		// unless we specify it here, the method will not be allowed unless the user has configure_salesforce capability.
-		$http_method = $request->get_method();
-		$class       = $request->get_url_params()['class'];
-		switch ( $class ) {
-			case 'salesforce':
-				if ( ! in_array( $http_method, explode( ',', WP_REST_Server::ALLMETHODS ), true ) ) {
-					return new WP_Error( 'rest_forbidden', esc_html__( 'This kind of request is not allowed.', 'object-sync-for-salesforce' ), array( 'status' => 401 ) );
-				}
-				if ( ! current_user_can( 'configure_salesforce' ) ) {
-					return new WP_Error( 'rest_forbidden', esc_html__( 'You do not have permissions to view this data.', 'object-sync-for-salesforce' ), array( 'status' => 401 ) );
-				}
-				break;
-			case 'mappings':
-				if ( ! in_array( $http_method, explode( ',', WP_REST_Server::ALLMETHODS ), true ) ) {
-					return new WP_Error( 'rest_forbidden', esc_html__( 'This kind of request is not allowed.', 'object-sync-for-salesforce' ), array( 'status' => 401 ) );
-				}
-				if ( ! current_user_can( 'configure_salesforce' ) ) {
-					return new WP_Error( 'rest_forbidden', esc_html__( 'You do not have permissions to view this data.', 'object-sync-for-salesforce' ), array( 'status' => 401 ) );
-				}
-				break;
-			case 'pull':
-				if ( ! in_array( $http_method, array( 'GET', 'POST', 'PUT' ), true ) ) {
-					return new WP_Error( 'rest_forbidden', esc_html__( 'This kind of request is not allowed.', 'object-sync-for-salesforce' ), array( 'status' => 401 ) );
-				}
-				break;
-			case 'push':
-				if ( ! in_array( $http_method, array( 'POST', 'PUT' ), true ) ) {
-					return new WP_Error( 'rest_forbidden', esc_html__( 'This kind of request is not allowed.', 'object-sync-for-salesforce' ), array( 'status' => 401 ) );
-				}
-				break;
-			default:
-				if ( ! current_user_can( 'configure_salesforce' ) ) {
-					return new WP_Error( 'rest_forbidden', esc_html__( 'You do not have permissions to view this data.', 'object-sync-for-salesforce' ), array( 'status' => 401 ) );
-				}
-				break;
+		// Every route requires the configure_salesforce capability (CVE-2026-15162: push and pull used to be open to anyone).
+		if ( ! current_user_can( 'configure_salesforce' ) ) {
+			return new WP_Error( 'rest_forbidden', esc_html__( 'You do not have permissions to view this data.', 'object-sync-for-salesforce' ), array( 'status' => rest_authorization_required_code() ) );
+		}
+
+		$http_method     = $request->get_method();
+		$class           = $request->get_url_params()['class'];
+		$allowed_methods = array(
+			'pull' => array( 'GET', 'POST', 'PUT' ),
+			'push' => array( 'POST', 'PUT' ),
+		);
+		if ( isset( $allowed_methods[ $class ] ) && ! in_array( $http_method, $allowed_methods[ $class ], true ) ) {
+			return new WP_Error( 'rest_forbidden', esc_html__( 'This kind of request is not allowed.', 'object-sync-for-salesforce' ), array( 'status' => 405 ) );
 		}
 		return true;
 	}

@@ -308,6 +308,13 @@ class Object_Sync_Sf_Mapping {
 	public $salesforce_events_v1;
 
 	/**
+	 * Column names per plugin table, used to validate query conditions.
+	 *
+	 * @var array
+	 */
+	private $table_columns = array();
+
+	/**
 	 * Constructor for mapping class
 	 */
 	public function __construct() {
@@ -475,7 +482,7 @@ class Object_Sync_Sf_Mapping {
 	public function get_fieldmaps( $id = null, $conditions = array(), $reset = false ) {
 		$table = $this->fieldmap_table;
 		if ( null !== $id ) { // get one fieldmap.
-			$map        = $this->wpdb->get_row( 'SELECT * FROM ' . $table . ' WHERE id = ' . $id, ARRAY_A );
+			$map        = $this->wpdb->get_row( $this->wpdb->prepare( "SELECT * FROM `{$table}` WHERE id = %d", absint( $id ) ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			$mappings   = array();
 			$mappings[] = $map;
 			$mappings   = $this->prepare_fieldmap_data( $mappings );
@@ -485,33 +492,25 @@ class Object_Sync_Sf_Mapping {
 			$mappings    = array();
 			$record_type = '';
 
-			// Assemble the SQL.
-			if ( ! empty( $conditions ) ) {
-				$where = '';
-				$i     = 0;
-				foreach ( $conditions as $key => $value ) {
-					// if 'any' is the value for fieldmap status, we keep it off the WHERE statement.
-					if ( 'fieldmap_status' === $key && 'any' === $value ) {
-						continue;
-					}
-					if ( 'salesforce_record_type' === $key ) {
-						$record_type = sanitize_text_field( $value );
-					} else {
-						$i++;
-						if ( $i > 1 ) {
-							$where .= ' AND ';
-						}
-						$where .= '`' . $key . '` = "' . $value . '"';
-					}
+			// Assemble the SQL. Record type and an 'any' status are handled outside the WHERE clause.
+			$where_conditions = array();
+			foreach ( $conditions as $key => $value ) {
+				if ( 'fieldmap_status' === $key && 'any' === $value ) {
+					continue;
 				}
-				if ( '' !== $where ) {
-					$where = ' WHERE ' . $where;
+				if ( 'salesforce_record_type' === $key ) {
+					$record_type = sanitize_text_field( $value );
+				} else {
+					$where_conditions[ $key ] = $value;
 				}
-			} else {
-				$where = '';
 			}
 
-			$mappings = $this->wpdb->get_results( 'SELECT * FROM ' . $table . $where . ' ORDER BY `fieldmap_status`, `weight`', ARRAY_A );
+			$where = $this->build_where_clause( $table, $where_conditions );
+			if ( false === $where ) {
+				return array();
+			}
+
+			$mappings = $this->wpdb->get_results( "SELECT * FROM `{$table}`{$where} ORDER BY `fieldmap_status`, `weight`", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $where is built with prepare().
 
 			if ( ! empty( $mappings ) ) {
 				$mappings = $this->prepare_fieldmap_data( $mappings, $record_type );
@@ -882,23 +881,12 @@ class Object_Sync_Sf_Mapping {
 		$table = $this->object_map_table;
 		$order = ' ORDER BY object_updated, created';
 		if ( ! empty( $conditions ) ) { // get multiple but with a limitation.
-			$mappings = array();
-
-			if ( ! empty( $conditions ) ) {
-				$where = ' WHERE ';
-				$i     = 0;
-				foreach ( $conditions as $key => $value ) {
-					$i++;
-					if ( $i > 1 ) {
-						$where .= ' AND ';
-					}
-					$where .= '`' . $key . '` = "' . $value . '"';
-				}
-			} else {
-				$where = '';
+			$where = $this->build_where_clause( $table, $conditions );
+			if ( false === $where ) {
+				return array();
 			}
 
-			$mappings = $this->wpdb->get_results( 'SELECT * FROM ' . $table . $where . $order, ARRAY_A );
+			$mappings = $this->wpdb->get_results( "SELECT * FROM `{$table}`{$where}{$order}", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $where is built with prepare().
 		} else { // get all of the mappings. ALL THE MAPPINGS.
 			$mappings = $this->wpdb->get_results( 'SELECT * FROM ' . $table . $order, ARRAY_A );
 		}
@@ -919,23 +907,12 @@ class Object_Sync_Sf_Mapping {
 		$table = $this->object_map_table;
 		$order = ' ORDER BY object_updated, created';
 		if ( ! empty( $conditions ) ) { // get multiple but with a limitation.
-			$mappings = array();
-
-			if ( ! empty( $conditions ) ) {
-				$where = ' WHERE ';
-				$i     = 0;
-				foreach ( $conditions as $key => $value ) {
-					$i++;
-					if ( $i > 1 ) {
-						$where .= ' AND ';
-					}
-					$where .= '`' . $key . '` = "' . $value . '"';
-				}
-			} else {
-				$where = '';
+			$where = $this->build_where_clause( $table, $conditions );
+			if ( false === $where ) {
+				return array();
 			}
 
-			$mappings = $this->wpdb->get_results( 'SELECT * FROM ' . $table . $where . $order, ARRAY_A );
+			$mappings = $this->wpdb->get_results( "SELECT * FROM `{$table}`{$where}{$order}", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $where is built with prepare().
 			if ( ! empty( $mappings ) && 1 === $this->wpdb->num_rows ) {
 				$mappings = $mappings[0];
 			}
@@ -1450,11 +1427,14 @@ class Object_Sync_Sf_Mapping {
 	public function get_failed_object_maps() {
 		$table                 = $this->object_map_table;
 		$errors                = array();
-		$items_per_page        = (int) get_option( $this->option_prefix . 'errors_per_page', 50 );
-		$current_error_page    = isset( $_GET['error_page'] ) ? (int) $_GET['error_page'] : 1;
+		$items_per_page        = max( 1, (int) get_option( $this->option_prefix . 'errors_per_page', 50 ) );
+		$current_error_page    = isset( $_GET['error_page'] ) ? max( 1, (int) $_GET['error_page'] ) : 1; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$offset                = ( $current_error_page * $items_per_page ) - $items_per_page;
-		$all_errors            = $this->wpdb->get_results( "SELECT * FROM {$table} WHERE salesforce_id LIKE 'tmp_sf_%' OR wordpress_id LIKE 'tmp_wp_%' OR last_sync_status = 0 LIMIT {$offset}, {$items_per_page}", ARRAY_A );
-		$errors_total          = $this->wpdb->get_var( "SELECT COUNT(`id`) FROM {$table} WHERE salesforce_id LIKE 'tmp_sf_%' OR wordpress_id LIKE 'tmp_wp_%' OR last_sync_status = 0" );
+		$error_where           = $this->wpdb->prepare( 'WHERE salesforce_id LIKE %s OR wordpress_id LIKE %s OR last_sync_status = 0', 'tmp_sf_%', 'tmp_wp_%' );
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $error_where is built with prepare().
+		$all_errors            = $this->wpdb->get_results( $this->wpdb->prepare( "SELECT * FROM `{$table}` {$error_where} LIMIT %d, %d", $offset, $items_per_page ), ARRAY_A );
+		$errors_total          = $this->wpdb->get_var( "SELECT COUNT(`id`) FROM `{$table}` {$error_where}" );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		$errors['total_pages'] = ceil( $errors_total / $items_per_page );
 		$errors['pagination']  = paginate_links(
 			array(
@@ -1481,10 +1461,42 @@ class Object_Sync_Sf_Mapping {
 	public function get_failed_object_map( $id ) {
 		$table     = $this->object_map_table;
 		$error     = array();
-		$error_row = $this->wpdb->get_row( 'SELECT * FROM ' . $table . ' WHERE id = "' . $id . '"', ARRAY_A );
+		$error_row = $this->wpdb->get_row( $this->wpdb->prepare( "SELECT * FROM `{$table}` WHERE id = %d", absint( $id ) ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		if ( ! empty( $error_row ) ) {
 			$error = $error_row;
 		}
 		return $error;
+	}
+
+	/**
+	 * Build a prepared " WHERE `col` = %s AND ..." clause for one of the plugin's tables.
+	 *
+	 * Column names are checked against the table's real columns, and values go
+	 * through $wpdb->prepare(), so callers can pass conditions from any source.
+	 *
+	 * @param string $table      The plugin table being queried.
+	 * @param array  $conditions Column => value pairs to match.
+	 * @return string|false The clause (empty string when there are no conditions), or false if a column is not in the table.
+	 */
+	private function build_where_clause( $table, $conditions ) {
+		if ( empty( $conditions ) ) {
+			return '';
+		}
+
+		if ( ! isset( $this->table_columns[ $table ] ) ) {
+			$this->table_columns[ $table ] = $this->wpdb->get_col( "DESC `{$table}`", 0 ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		}
+
+		$clauses = array();
+		$values  = array();
+		foreach ( $conditions as $key => $value ) {
+			if ( ! in_array( $key, $this->table_columns[ $table ], true ) ) {
+				return false;
+			}
+			$clauses[] = '`' . $key . '` = %s';
+			$values[]  = is_scalar( $value ) || null === $value ? (string) $value : '';
+		}
+
+		return ' WHERE ' . $this->wpdb->prepare( implode( ' AND ', $clauses ), $values ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 	}
 }

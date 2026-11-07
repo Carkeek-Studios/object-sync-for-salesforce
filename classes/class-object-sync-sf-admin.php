@@ -14,6 +14,45 @@ defined( 'ABSPATH' ) || exit;
 class Object_Sync_Sf_Admin {
 
 	/**
+	 * Nonce action for the plugin's admin AJAX and admin-post requests.
+	 */
+	const ADMIN_NONCE_ACTION = 'object_sync_for_salesforce_admin';
+
+	/**
+	 * Request field that carries the admin nonce.
+	 */
+	const ADMIN_NONCE_FIELD = 'osf_admin_nonce';
+
+	/**
+	 * AJAX actions that require the admin nonce and the configure_salesforce capability.
+	 *
+	 * @var array
+	 */
+	private $protected_ajax_actions = array(
+		'get_salesforce_object_description',
+		'get_salesforce_object_fields',
+		'get_wordpress_object_fields',
+		'push_to_salesforce',
+		'pull_from_salesforce',
+		'refresh_mapped_data',
+		'clear_sfwp_cache',
+		'delete_salesforce_api_version',
+		'salesforce_pull_webhook',
+	);
+
+	/**
+	 * Admin-post actions that require the admin nonce and the configure_salesforce capability.
+	 *
+	 * @var array
+	 */
+	private $protected_post_actions = array(
+		'post_fieldmap',
+		'delete_fieldmap',
+		'post_object_map',
+		'delete_object_map',
+	);
+
+	/**
 	 * Current version of the plugin
 	 *
 	 * @var string
@@ -263,6 +302,9 @@ class Object_Sync_Sf_Admin {
 		add_action( 'admin_enqueue_scripts', array( $this, 'admin_scripts_and_styles' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'bulk_sync_scripts_and_styles' ) );
 
+		// Require a nonce and the configure_salesforce capability for the plugin's AJAX and admin-post actions.
+		add_action( 'admin_init', array( $this, 'verify_protected_requests' ), 1 );
+
 		// Settings API forms and notices.
 		add_action( 'admin_menu', array( $this, 'create_admin_menu' ) );
 		add_action( 'admin_init', array( $this, 'salesforce_settings_forms' ) );
@@ -360,6 +402,25 @@ class Object_Sync_Sf_Admin {
 		}
 
 		wp_enqueue_script( $this->slug . '-admin', plugins_url( 'assets/js/object-sync-for-salesforce-admin.min.js', $this->file ), $javascript_dependencies, filemtime( plugin_dir_path( $this->file ) . 'assets/js/object-sync-for-salesforce-admin.min.js' ), true );
+
+		// Add the admin nonce to the plugin's own admin-ajax requests. Done here rather than in the
+		// built JS so the compiled file doesn't need rebuilding.
+		if ( current_user_can( 'configure_salesforce' ) ) {
+			$nonce_script = sprintf(
+				'jQuery.ajaxPrefilter( function( options ) {
+					if ( "string" !== typeof options.data || -1 === String( options.url ).indexOf( "admin-ajax.php" ) ) {
+						return;
+					}
+					if ( /(^|&)action=(%1$s)(&|$)/.test( options.data ) ) {
+						options.data += "&%2$s=" + encodeURIComponent( %3$s );
+					}
+				} );',
+				implode( '|', $this->protected_ajax_actions ),
+				self::ADMIN_NONCE_FIELD,
+				wp_json_encode( wp_create_nonce( self::ADMIN_NONCE_ACTION ) )
+			);
+			wp_add_inline_script( $this->slug . '-admin', $nonce_script, 'before' );
+		}
 		wp_enqueue_style( $this->slug . '-admin', plugins_url( 'assets/css/object-sync-for-salesforce-admin.css', $this->file ), $css_dependencies, filemtime( plugin_dir_path( $this->file ) . 'assets/css/object-sync-for-salesforce-admin.css' ), 'all' );
 	}
 
@@ -2093,7 +2154,9 @@ class Object_Sync_Sf_Admin {
 			}
 			if ( isset( $data['plugin_settings'] ) ) {
 				foreach ( $data['plugin_settings'] as $key => $value ) {
-					delete_option( $value['option_name'] );
+					if ( $this->is_importable_option( $value ) ) {
+						delete_option( $value['option_name'] );
+					}
 				}
 			}
 		}
@@ -2148,7 +2211,16 @@ class Object_Sync_Sf_Admin {
 
 		if ( isset( $data['plugin_settings'] ) ) {
 			foreach ( $data['plugin_settings'] as $key => $value ) {
-				update_option( $value['option_name'], maybe_unserialize( $value['option_value'] ), $value['autoload'] );
+				if ( ! $this->is_importable_option( $value ) ) {
+					continue;
+				}
+				// Exports hold raw option values, so serialized arrays are expected; objects are never restored.
+				$option_value = $value['option_value'];
+				if ( is_string( $option_value ) && is_serialized( $option_value ) ) {
+					$option_value = @unserialize( trim( $option_value ), array( 'allowed_classes' => false ) ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged,WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize
+				}
+				$autoload = isset( $value['autoload'] ) ? $value['autoload'] : null;
+				update_option( $value['option_name'], $option_value, $autoload );
 			}
 		}
 
@@ -2592,8 +2664,44 @@ class Object_Sync_Sf_Admin {
 	}
 
 	/**
-	 * Check WordPress Admin permissions
-	 * Check if the current user is allowed to access the Salesforce plugin options
+	 * Stop the plugin's AJAX and admin-post actions unless the request has a valid
+	 * admin nonce and the user has the configure_salesforce capability.
+	 * Runs early on admin_init, which fires before wp_ajax_* and admin_post_* hooks.
+	 */
+	public function verify_protected_requests() {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- this method is the nonce check.
+		$action = isset( $_REQUEST['action'] ) ? sanitize_key( wp_unslash( $_REQUEST['action'] ) ) : '';
+		if ( '' === $action ) {
+			return;
+		}
+
+		if ( wp_doing_ajax() && in_array( $action, $this->protected_ajax_actions, true ) ) {
+			if ( false === check_ajax_referer( self::ADMIN_NONCE_ACTION, self::ADMIN_NONCE_FIELD, false ) || true !== $this->check_wordpress_admin_permissions() ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'You do not have permission to do this.', 'object-sync-for-salesforce' ) ), 403 );
+			}
+			return;
+		}
+
+		global $pagenow;
+		if ( 'admin-post.php' === $pagenow && in_array( $action, $this->protected_post_actions, true ) ) {
+			check_admin_referer( self::ADMIN_NONCE_ACTION, self::ADMIN_NONCE_FIELD );
+			if ( true !== $this->check_wordpress_admin_permissions() ) {
+				wp_die( esc_html__( 'You do not have permission to do this.', 'object-sync-for-salesforce' ), 403 );
+			}
+		}
+	}
+
+	/**
+	 * Print the admin nonce field for the plugin's admin-post forms.
+	 */
+	public function admin_nonce_field() {
+		wp_nonce_field( self::ADMIN_NONCE_ACTION, self::ADMIN_NONCE_FIELD );
+	}
+
+	/**
+	 * Check if the current user can configure the plugin.
+	 *
+	 * @return bool
 	 */
 	private function check_wordpress_admin_permissions() {
 
@@ -2704,11 +2812,28 @@ class Object_Sync_Sf_Admin {
 	}
 
 	/**
+	 * Whether an imported settings row is one of this plugin's own options.
+	 *
+	 * @param mixed $value One row from the import file's plugin_settings list.
+	 * @return bool
+	 */
+	private function is_importable_option( $value ) {
+		return is_array( $value )
+			&& isset( $value['option_name'], $value['option_value'] )
+			&& is_string( $value['option_name'] )
+			&& 0 === strpos( $value['option_name'], $this->option_prefix );
+	}
+
+	/**
 	 * If the user profile has been mapped to Salesforce, do it
 	 *
 	 * @param int $user_id the ID of the WordPress user.
 	 */
 	public function save_salesforce_user_fields( $user_id ) {
+		// The Salesforce box is only shown to users who can configure the plugin, so only they can save it.
+		if ( true !== $this->check_wordpress_admin_permissions() ) {
+			return;
+		}
 		$post_data = filter_input_array( INPUT_POST, FILTER_UNSAFE_RAW );
 		if ( isset( $post_data['salesforce_update_mapped_user'] ) && true === filter_var( $post_data['salesforce_update_mapped_user'], FILTER_VALIDATE_BOOLEAN ) ) {
 			$mapping_objects = $this->mappings->get_all_object_maps(

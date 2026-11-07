@@ -1,6 +1,14 @@
 Changelog
 =========
 
+* 3.0.04 (2026-11-07) - Carkeek fork
+	* Security: Fix unauthenticated SQL injection in the REST push and pull routes (CVE-2026-15162). All REST routes now require the `configure_salesforce` capability.
+	* Security: Plugin AJAX and admin-post actions now require a nonce and the `configure_salesforce` capability. Previously any logged-in user could call them.
+	* Security: Database queries built from fieldmap and object map conditions now use `$wpdb->prepare()` and check column names against the table.
+	* Security: Saving the Salesforce box on user profiles requires `configure_salesforce`.
+	* Security: JSON import only restores the plugin's own options and never unserializes objects.
+	* Security: Escape the admin error notice.
+
 * 2.2.13 (2025-12-12)
 	* Plugin status: Plugin status: as before, this plugin doesn't currently have official maintainers. I try to check in occasionally if anyone submits pull requests or major issues and merge/address them if I can do so rather quickly. Updates will be given within the plugin if/when that status changes.
 	* Bug fix: Thanks to @DAnn2012 for fixing a bug in which `echo` was missing from an `esc_html__` call.
